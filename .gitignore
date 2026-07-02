@@ -6,7 +6,6 @@ examples/js/node_modules
 # Ignores development broadcast logs
 broadcast/
 .DS_Store
-lib/.DS_Store
 
 # Docs
 docs/

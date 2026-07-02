@@ -2,7 +2,7 @@ const { ethers } = require("hardhat");
 require("dotenv").config();
 
 async function main() {
-    console.log("Starting MachineStationFactory deployment...");
+    console.log("Starting MachineStationFactory PEAQ deployment...");
 
     // Get environment variables (following foundry script pattern)
     const deployerPrivateKey = process.env.DEPLOYER_PRIVATE_KEY;
