@@ -11,8 +11,9 @@ import {Constants} from "../libs/Constants.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
-contract GasRefundFactory is Initializable, EIP712Upgradeable, AccessControlUpgradeable, ReentrancyGuardTransient {
+contract GasRefundFactory is Initializable, EIP712Upgradeable, AccessControlUpgradeable, ReentrancyGuardTransient, PausableUpgradeable {
     using SafeERC20 for IERC20;
 
     // This role approves refundable transactions
@@ -37,6 +38,7 @@ contract GasRefundFactory is Initializable, EIP712Upgradeable, AccessControlUpgr
         if (admin == address(0)) revert Errors.ZeroAddress();
         if (manager == address(0)) revert Errors.ZeroAddress();
 
+        __Pausable_init();
         __AccessControl_init();
         __EIP712_init("GasRefundFactory", "1");
 
@@ -56,12 +58,20 @@ contract GasRefundFactory is Initializable, EIP712Upgradeable, AccessControlUpgr
         _grantRole(REFUNDABLE_TARGET_CALL_ROLE, Constants.PEAQ_STORAGE);
     }
 
+    function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _pause();
+    }
+
+    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _unpause();
+    }
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
-    function updateConfigs(bytes32 key, uint256 value) external onlyRole(MANAGER_ROLE) {
+    function updateConfigs(bytes32 key, uint256 value) external whenNotPaused onlyRole(MANAGER_ROLE) {
         configs[key] = value;
     }
 
@@ -97,7 +107,7 @@ contract GasRefundFactory is Initializable, EIP712Upgradeable, AccessControlUpgr
         uint256 nonce,
         uint256 refundAmount,
         bytes calldata signature
-    ) external nonReentrant {
+    ) external whenNotPaused nonReentrant {
         if (target == address(0)) revert Errors.ZeroAddress();
         if (usedNonces[nonce]) revert Errors.NonceAlreadyUsed(nonce);
 

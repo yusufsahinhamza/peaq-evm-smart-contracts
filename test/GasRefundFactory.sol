@@ -71,4 +71,14 @@ contract GasRefundFactoryTest is Test {
         vm.expectRevert(Errors.ZeroAddress.selector);
         new ERC1967Proxy(address(newFactory), initData);
     }
+
+    function testPauseAndUnpause() public {
+        vm.prank(admin);
+        gasRefundFactory.pause();
+        assertTrue(gasRefundFactory.paused());
+
+        vm.prank(admin);
+        gasRefundFactory.unpause();
+        assertFalse(gasRefundFactory.paused());
+    }
 }
