@@ -2,15 +2,17 @@
 pragma solidity 0.8.25;
 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {IERC20, SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {Errors} from "../libs/Errors.sol";
 import {Events} from "../libs/Events.sol";
 import {Constants} from "../libs/Constants.sol";
 
-contract GasRefundFactory is EIP712, AccessControl, ReentrancyGuard {
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
+import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+
+contract GasRefundFactory is Initializable, EIP712Upgradeable, AccessControlUpgradeable, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
     // This role approves refundable transactions
@@ -29,9 +31,14 @@ contract GasRefundFactory is EIP712, AccessControl, ReentrancyGuard {
     mapping(uint256 => bool) private usedNonces;
     mapping(bytes32 => uint256) public configs;
 
-    constructor(address admin, address manager, uint256 _refundAmount) EIP712("GasRefundFactory", "1") {
+    uint256[49] __gap;
+
+    function initialize(address admin, address manager, uint256 _refundAmount) public initializer {
         if (admin == address(0)) revert Errors.ZeroAddress();
         if (manager == address(0)) revert Errors.ZeroAddress();
+
+        __AccessControl_init();
+        __EIP712_init("GasRefundFactory", "1");
 
         // set the refund amount per tx
         configs[TX_FEE_REFUND_AMOUNT_KEY] = _refundAmount;
@@ -47,6 +54,11 @@ contract GasRefundFactory is EIP712, AccessControl, ReentrancyGuard {
         _grantRole(REFUNDABLE_TARGET_CALL_ROLE, Constants.PEAQ_DID);
         _grantRole(REFUNDABLE_TARGET_CALL_ROLE, Constants.PEAQ_RBAC);
         _grantRole(REFUNDABLE_TARGET_CALL_ROLE, Constants.PEAQ_STORAGE);
+    }
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
     }
 
     function updateConfigs(bytes32 key, uint256 value) external onlyRole(MANAGER_ROLE) {
