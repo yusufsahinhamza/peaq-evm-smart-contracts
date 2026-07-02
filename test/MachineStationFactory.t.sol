@@ -14,10 +14,10 @@ contract MachineStationFactoryTest is Test {
 
     MachineStationFactory public factory;
     address public admin;
-    address public stationManger;
+    address public stationManager;
     address public user;
     uint256 public adminPrivateKey;
-    uint256 public stationMangerPrivateKey;
+    uint256 public stationManagerPrivateKey;
     uint256 public userPrivateKey;
 
     // EIP-712 type hashes
@@ -41,16 +41,16 @@ contract MachineStationFactoryTest is Test {
 
     function setUp() public {
         adminPrivateKey = 0x1;
-        stationMangerPrivateKey = 0x2;
+        stationManagerPrivateKey = 0x2;
         userPrivateKey = 0x3;
 
         admin = vm.addr(adminPrivateKey);
-        stationManger = vm.addr(stationMangerPrivateKey);
+        stationManager = vm.addr(stationManagerPrivateKey);
         user = vm.addr(userPrivateKey);
 
         uint256 refundAmount = 100 ether;
 
-        factory = new MachineStationFactory(admin, stationManger, refundAmount);
+        factory = new MachineStationFactory(admin, stationManager, refundAmount);
     }
 
     function testTransferMachineStationBalance() public {
@@ -127,7 +127,7 @@ contract MachineStationFactoryTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(adminPrivateKey, digest);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        vm.prank(stationManger);
+        vm.prank(stationManager);
         vm.expectRevert(); // Should revert with invalid signature
         factory.deployMachineSmartAccount(user, nonce, signature);
     }
@@ -141,7 +141,7 @@ contract MachineStationFactoryTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(adminPrivateKey, digest);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        vm.prank(stationManger);
+        vm.prank(stationManager);
         vm.expectRevert(); // Should revert with invalid signature
         factory.deployMachineSmartAccount(user, nonce, signature);
     }
@@ -165,7 +165,7 @@ contract MachineStationFactoryTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(adminPrivateKey, deployDigest);
         bytes memory deploySignature = abi.encodePacked(r, s, v);
 
-        vm.prank(stationManger);
+        vm.prank(stationManager);
         factory.deployMachineSmartAccount(user, nonce, deploySignature);
 
         address newMachineStation = address(0x123);
@@ -183,9 +183,20 @@ contract MachineStationFactoryTest is Test {
     function _hashTypedDataV4(bytes32 domainSeparator, bytes32 structHash) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
     }
-    /* fix me
+
     function testDeployAndExecuteMachineTransaction() public {
         uint256 nonce = 0;
+        uint256 refundAmount = 100 ether;
+
+        //  mock ERC20 at the FUNDING_TOKEN address (0x809)
+        address fundingToken = address(0x0000000000000000000000000000000000000809);
+        MockERC20 token = new MockERC20("PEAQ Token", "PEAQ");
+
+        // Etch the mock token to the FUNDING_TOKEN address
+        vm.etch(fundingToken, address(token).code);
+
+        // Mint tokens to the factory contract using the mocked token at FUNDING_TOKEN address
+        MockERC20(fundingToken).mint(address(factory), refundAmount);
 
         bytes32 deployStructHash = keccak256(
             abi.encode(
@@ -199,22 +210,22 @@ contract MachineStationFactoryTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(adminPrivateKey, deployDigest);
         bytes memory deploySignature = abi.encodePacked(r, s, v);
 
-        vm.prank(stationManger);
+        vm.prank(stationManager);
         address machineAddress = factory.deployMachineSmartAccount(user, nonce, deploySignature);
 
         address target = address(0x789);
         bytes memory data = abi.encodeWithSignature("someFunction()");
-        uint256 execNonce = 1; // New nonce for execution
+        nonce++;
 
         bytes32 execStructHash = keccak256(
-            abi.encode(EXECUTE_MACHINE_TRANSACTION_TYPEHASH, user, machineAddress, target, keccak256(data), execNonce)
+            abi.encode(EXECUTE_MACHINE_TRANSACTION_TYPEHASH, machineAddress, target, keccak256(data), nonce, refundAmount)
         );
 
         bytes32 execDigest = _hashTypedDataV4(factory.getDomainSeparator(), execStructHash);
         (v, r, s) = vm.sign(adminPrivateKey, execDigest);
-        bytes memory stationMangerSignature = abi.encodePacked(r, s, v);
+        bytes memory stationManagerSignature = abi.encodePacked(r, s, v);
 
-        bytes32 eoaMessageHash = keccak256(abi.encodePacked(machineAddress, target, data, execNonce));
+        bytes32 eoaMessageHash = keccak256(abi.encodePacked(machineAddress, target, data, nonce));
         bytes32 ethSignedMessageHash = MessageHashUtils.toEthSignedMessageHash(eoaMessageHash);
         (v, r, s) = vm.sign(userPrivateKey, ethSignedMessageHash);
         bytes memory eoaSignature = abi.encodePacked(r, s, v);
@@ -223,10 +234,10 @@ contract MachineStationFactoryTest is Test {
         vm.etch(target, hex"00");
         vm.mockCall(target, data, abi.encode());
 
-        vm.prank(stationManger);
+        vm.prank(stationManager);
         factory.executeMachineTransaction(
-            user, machineAddress, target, data, execNonce, stationMangerSignature, eoaSignature
+            machineAddress, target, data, nonce, refundAmount, stationManagerSignature, eoaSignature
         );
     }
-    */
+
 }
