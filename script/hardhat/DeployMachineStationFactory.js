@@ -1,4 +1,5 @@
 const { ethers } = require("hardhat");
+const ERC1967ProxyArtifact = require("@openzeppelin/contracts/build/contracts/ERC1967Proxy.json");
 require("dotenv").config();
 
 async function main() {
@@ -33,22 +34,63 @@ async function main() {
     console.log("Account balance:", ethers.formatEther(balance), "Native Token");
 
     try {
-        // Get the contract factory
-        const MachineStationFactory = await ethers.getContractFactory("MachineStationFactory", deployerWallet);
+        // Deploy implementation contracts
+        console.log("Deploying implementation contracts...");
+        const MachineSmartAccount = await ethers.getContractFactory("MachineSmartAccount", deployerWallet);
+        const machineSmartAccountImpl = await MachineSmartAccount.deploy();
+        await machineSmartAccountImpl.waitForDeployment();
+        const machineSmartAccountImplAddress = await machineSmartAccountImpl.getAddress();
+        console.log("✅ MachineSmartAccount implementation deployed to:", machineSmartAccountImplAddress);
 
-        // Deploy the contract
-        console.log("Deploying MachineStationFactory...");
-        const factory = await MachineStationFactory.deploy(
-            adminAddress,
-            stationManager,
-            txRefundAmount
+        const MachineStationFactory = await ethers.getContractFactory("MachineStationFactory", deployerWallet);
+        const factoryImpl = await MachineStationFactory.deploy();
+        await factoryImpl.waitForDeployment();
+        const factoryImplAddress = await factoryImpl.getAddress();
+        console.log("✅ MachineStationFactory implementation deployed to:", factoryImplAddress);
+
+        // Deploy UpgradeableBeacon for MachineSmartAccount
+        console.log("Deploying UpgradeableBeacon...");
+        const UpgradeableBeacon = await ethers.getContractFactory("UpgradeableBeacon", deployerWallet);
+        const beacon = await UpgradeableBeacon.deploy(machineSmartAccountImplAddress, deployerWallet.address);
+        await beacon.waitForDeployment();
+        const beaconAddress = await beacon.getAddress();
+        console.log("✅ UpgradeableBeacon deployed to:", beaconAddress);
+
+        // Deploy factory proxy with initialization data
+        console.log("Deploying MachineStationFactory proxy...");
+
+        const proxyFactory = new ethers.ContractFactory(
+            ERC1967ProxyArtifact.abi,
+            ERC1967ProxyArtifact.bytecode,
+            deployerWallet
         );
 
-        // Wait for deployment
-        await factory.waitForDeployment();
-        const factoryAddress = await factory.getAddress();
+        const iface = new ethers.Interface(MachineStationFactory.interface.format("json"));
+        const initData = iface.encodeFunctionData("initialize", [
+            adminAddress,
+            stationManager,
+            beaconAddress,
+            txRefundAmount
+        ]);
+        const proxy = await proxyFactory.deploy(factoryImplAddress, initData);
+        await proxy.waitForDeployment();
+        const proxyAddress = await proxy.getAddress();
+        console.log("✅ MachineStationFactory proxy deployed to:", proxyAddress);
 
-        console.log("MachineStationFactory deployed to:", factoryAddress);
+        const factory = MachineStationFactory.attach(proxyAddress);
+
+        // Transfer beacon ownership to factory proxy
+        console.log("Transferring beacon ownership to factory...");
+        const beaconAsDeployer = beacon.connect(deployerWallet);
+        const txOwnership = await beaconAsDeployer.transferOwnership(proxyAddress);
+        await txOwnership.wait();
+        console.log("✅ Beacon ownership transferred to factory");
+
+        console.log("\n=== Deployment Summary ===");
+        console.log("MachineSmartAccount implementation:", machineSmartAccountImplAddress);
+        console.log("MachineStationFactory implementation:", factoryImplAddress);
+        console.log("UpgradeableBeacon:", beaconAddress);
+        console.log("MachineStationFactory proxy (use this address):", proxyAddress);
         console.log("Admin address:", adminAddress);
         console.log("Station Manager address:", stationManager);
 

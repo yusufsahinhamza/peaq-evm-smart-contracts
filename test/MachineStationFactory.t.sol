@@ -4,6 +4,7 @@ pragma solidity 0.8.25;
 import {Test} from "forge-std/Test.sol";
 import {MachineStationFactory} from "../src/machine-station/MachineStationFactory.sol";
 import {MachineSmartAccount} from "../src/machine-station/MachineSmartAccount.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -13,6 +14,8 @@ contract MachineStationFactoryTest is Test {
     using ECDSA for bytes32;
 
     MachineStationFactory public factory;
+    MachineStationFactory public implementation;
+    MachineSmartAccount public machineSmartAccount;
     address public admin;
     address public stationManager;
     address public user;
@@ -50,7 +53,20 @@ contract MachineStationFactoryTest is Test {
 
         uint256 refundAmount = 100 ether;
 
-        factory = new MachineStationFactory(admin, stationManager, refundAmount);
+        implementation = new MachineStationFactory();
+        machineSmartAccount = new MachineSmartAccount();
+
+        bytes memory initData = abi.encodeWithSelector(
+            MachineStationFactory.initialize.selector,
+            admin,
+            stationManager,
+            address(machineSmartAccount),
+            refundAmount
+        );
+
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+
+        factory = MachineStationFactory(payable(address(proxy)));
     }
 
     function testTransferMachineStationBalance() public {

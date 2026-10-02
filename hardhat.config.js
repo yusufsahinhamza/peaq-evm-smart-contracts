@@ -1,4 +1,5 @@
 require('@nomicfoundation/hardhat-ethers');
+require("@nomicfoundation/hardhat-verify");
 require('dotenv').config();
 
 /** @type import('hardhat/config').HardhatUserConfig */
@@ -17,13 +18,16 @@ module.exports = {
     agung: {
       url: process.env.BASE_URL_AGUNG,
       accounts: [`${process.env.DEPLOYER_PRIVATE_KEY}`],
-      chainId: 9990,
+      chainId: 97,
     },
     peaq: {
       url: process.env.BASE_URL_PEAQ,
       accounts: [`${process.env.DEPLOYER_PRIVATE_KEY}`],
       chainId: 3338,
     },
+  },
+  etherscan: {
+    apiKey: 'FKNNNI4YYEI9IBS45STARRMFVF6988UY88'
   },
   paths: {
     sources: "./src",

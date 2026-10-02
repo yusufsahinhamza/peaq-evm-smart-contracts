@@ -2,18 +2,19 @@
 pragma solidity 0.8.25;
 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
+import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20, SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Errors} from "../libs/Errors.sol";
 import {Events} from "../libs/Events.sol";
 import {Constants} from "../libs/Constants.sol";
 
-contract MachineSmartAccount is EIP712, AccessControl, ReentrancyGuard {
+contract MachineSmartAccount is Initializable, EIP712Upgradeable, AccessControlUpgradeable, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
-    address public immutable owner;
+    address public owner;
 
     bytes32 public constant MACHINE_STATION_ROLE = keccak256("MACHINE_STATION_ROLE");
 
@@ -26,12 +27,23 @@ contract MachineSmartAccount is EIP712, AccessControl, ReentrancyGuard {
 
     mapping(uint256 => bool) public usedNonces;
 
-    constructor(address _owner, address machineStation) EIP712("MachineSmartAccount", "2") {
+    uint256[49] __gap;
+
+    function initialize(address _owner, address machineStation) public initializer {
         if (_owner == address(0)) revert Errors.ZeroAddress(); // Owner address cannot be zero
         if (machineStation == address(0)) revert Errors.ZeroAddress(); // Machine Station cannot be zero
+
+        __AccessControl_init();
+        __EIP712_init("MachineSmartAccount", "2");
+
         owner = _owner;
         _grantRole(DEFAULT_ADMIN_ROLE, machineStation);
         _grantRole(MACHINE_STATION_ROLE, machineStation);
+    }
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
     }
 
     /**

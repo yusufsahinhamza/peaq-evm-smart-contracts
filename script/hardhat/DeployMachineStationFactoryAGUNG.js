@@ -1,4 +1,5 @@
 const { ethers } = require("hardhat");
+const ERC1967ProxyArtifact = require("@openzeppelin/contracts/build/contracts/ERC1967Proxy.json");
 require("dotenv").config();
 
 async function main() {
@@ -72,21 +73,57 @@ async function main() {
         const minBalanceKeyHash = ethers.keccak256(ethers.toUtf8Bytes(minBalanceKey));
         const fundingAmountKeyHash = ethers.keccak256(ethers.toUtf8Bytes(fundingAmountKey));
 
-        // Deploy contract with deployer account
-        console.log("Deploying MachineStationFactory...");
+        // Deploy implementation contracts
+        console.log("Deploying implementation contracts...");
+        const MachineSmartAccount = await ethers.getContractFactory("MachineSmartAccount", deployerWallet);
+        const machineSmartAccountImpl = await MachineSmartAccount.deploy();
+        await machineSmartAccountImpl.waitForDeployment();
+        const machineSmartAccountImplAddress = await machineSmartAccountImpl.getAddress();
+        console.log("✅ MachineSmartAccount implementation deployed to:", machineSmartAccountImplAddress);
+
         const MachineStationFactory = await ethers.getContractFactory("MachineStationFactory", deployerWallet);
-        const factory = await MachineStationFactory.deploy(
-            adminAddress,
-            stationManager,
-            txRefundAmount
+        const factoryImpl = await MachineStationFactory.deploy();
+        await factoryImpl.waitForDeployment();
+        const factoryImplAddress = await factoryImpl.getAddress();
+        console.log("✅ MachineStationFactory implementation deployed to:", factoryImplAddress);
+
+        // Deploy UpgradeableBeacon for MachineSmartAccount
+        console.log("Deploying UpgradeableBeacon...");
+        const UpgradeableBeacon = await ethers.getContractFactory("UpgradeableBeacon", deployerWallet);
+        const beacon = await UpgradeableBeacon.deploy(machineSmartAccountImplAddress, deployerWallet.address);
+        await beacon.waitForDeployment();
+        const beaconAddress = await beacon.getAddress();
+        console.log("✅ UpgradeableBeacon deployed to:", beaconAddress);
+
+        // Deploy factory proxy with initialization data
+        console.log("Deploying MachineStationFactory proxy...");
+
+        const proxyFactory = new ethers.ContractFactory(
+            ERC1967ProxyArtifact.abi,
+            ERC1967ProxyArtifact.bytecode,
+            deployerWallet
         );
 
-        // Wait for deployment
-        await factory.waitForDeployment();
-        const factoryAddress = await factory.getAddress();
+        const iface = new ethers.Interface(MachineStationFactory.interface.format("json"));
+        const initData = iface.encodeFunctionData("initialize", [
+            adminAddress,
+            stationManager,
+            beaconAddress,
+            txRefundAmount
+        ]);
+        const proxy = await proxyFactory.deploy(factoryImplAddress, initData);
+        await proxy.waitForDeployment();
+        const proxyAddress = await proxy.getAddress();
+        console.log("✅ MachineStationFactory proxy deployed to:", proxyAddress);
 
-        console.log("✅ MachineStationFactory deployed successfully!");
-        console.log("Contract address:", factoryAddress);
+        const factory = MachineStationFactory.attach(proxyAddress);
+
+        // Transfer beacon ownership to factory proxy
+        console.log("Transferring beacon ownership to factory...");
+        const beaconAsDeployer = beacon.connect(deployerWallet);
+        const txOwnership = await beaconAsDeployer.transferOwnership(proxyAddress);
+        await txOwnership.wait();
+        console.log("✅ Beacon ownership transferred to factory");
 
         // Update configs with admin account using the private key
         console.log("Updating configs with admin account...");
@@ -95,14 +132,18 @@ async function main() {
         console.log("Setting min balance config...");
         const tx1 = await factoryAsAdmin.updateConfigs(minBalanceKeyHash, minBalanceValueAgung);
         await tx1.wait();
-        console.log("Min balance config updated, tx hash:", tx1.hash);
+        console.log("✅ Min balance config updated, tx hash:", tx1.hash);
 
         console.log("Setting funding amount config...");
         const tx2 = await factoryAsAdmin.updateConfigs(fundingAmountKeyHash, fundingAmountValueAgung);
         await tx2.wait();
-        console.log("Funding amount config updated, tx hash:", tx2.hash);
+        console.log("✅ Funding amount config updated, tx hash:", tx2.hash);
 
-        console.log("MachineStationFactory deployed to:", factoryAddress);
+        console.log("\n=== Deployment Summary ===");
+        console.log("MachineSmartAccount implementation:", machineSmartAccountImplAddress);
+        console.log("MachineStationFactory implementation:", factoryImplAddress);
+        console.log("UpgradeableBeacon:", beaconAddress);
+        console.log("MachineStationFactory proxy (use this address):", proxyAddress);
         console.log("Admin address:", adminAddress);
         console.log("Station Manager address:", stationManager);
 

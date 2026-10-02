@@ -2,16 +2,19 @@
 pragma solidity 0.8.25;
 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {IERC20, SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UpgradeableBeacon} from "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
+import {BeaconProxy} from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 import {MachineSmartAccount} from "./MachineSmartAccount.sol";
 import {Errors} from "../libs/Errors.sol";
 import {Events} from "../libs/Events.sol";
 import {Constants} from "../libs/Constants.sol";
 
-contract MachineStationFactory is EIP712, AccessControl, ReentrancyGuard {
+contract MachineStationFactory is Initializable, EIP712Upgradeable, AccessControlUpgradeable, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
     bytes32 public constant STATION_ADMIN_ROLE = keccak256("STATION_ADMIN_ROLE");
@@ -47,9 +50,23 @@ contract MachineStationFactory is EIP712, AccessControl, ReentrancyGuard {
     mapping(uint256 => bool) private usedNonces;
     mapping(bytes32 => uint256) public configs;
 
-    constructor(address admin, address stationManager, uint256 _txRefundAmount) EIP712("MachineStationFactory", "2") {
+    address public machineSmartAccountBeacon;
+
+    uint256[49] __gap;
+
+    function initialize(address admin, address stationManager, address _machineSmartAccountImplementation, uint256 _txRefundAmount) public initializer {
         if (admin == address(0)) revert Errors.ZeroAddress();
         if (stationManager == address(0)) revert Errors.ZeroAddress();
+        if (_machineSmartAccountImplementation == address(0)) revert Errors.ZeroAddress();
+
+        __AccessControl_init();
+        __EIP712_init("MachineStationFactory", "2");
+
+        // Create UpgradeableBeacon to manage MachineSmartAccount implementation
+        // All machine proxies will reference this beacon, enabling synchronized upgrades
+        // The factory itself (proxy) is the owner so it can upgrade the beacon
+        UpgradeableBeacon beacon = new UpgradeableBeacon(_machineSmartAccountImplementation, address(this));
+        machineSmartAccountBeacon = address(beacon);
 
         // set the refund amount per tx
         configs[TX_FEE_REFUND_AMOUNT_KEY] = _txRefundAmount;
@@ -73,9 +90,27 @@ contract MachineStationFactory is EIP712, AccessControl, ReentrancyGuard {
         _grantRole(REQUIRED_STORAGE_DEPOSIT_FEE_ROLE, Constants.PEAQ_STORAGE);
     }
 
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
     function updateConfigs(bytes32 key, uint256 value) external onlyRole(STATION_MANAGER_ROLE) {
         configs[key] = value;
         emit Events.ConfigsUpdated(key, value);
+    }
+
+    /**
+     * @dev Upgrade the MachineSmartAccount implementation via the beacon.
+     * All existing machine proxies will automatically use the new implementation.
+     * @param newImplementation Address of the new MachineSmartAccount implementation
+     */
+    function upgradeMachineSmartAccountImplementation(address newImplementation)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        if (newImplementation == address(0)) revert Errors.ZeroAddress();
+        UpgradeableBeacon(machineSmartAccountBeacon).upgradeTo(newImplementation);
     }
 
     /**
@@ -100,16 +135,23 @@ contract MachineStationFactory is EIP712, AccessControl, ReentrancyGuard {
 
         usedNonces[nonce] = true;
 
-        // Deploy a new instance of MachineSmartAccount
-        MachineSmartAccount newMachineSmartAccount = new MachineSmartAccount(machineOwner, address(this));
+        // Deploy a new BeaconProxy instance of MachineSmartAccount
+        bytes memory initData = abi.encodeWithSelector(
+            MachineSmartAccount.initialize.selector,
+            machineOwner,
+            address(this)
+        );
+
+        BeaconProxy proxy = new BeaconProxy(machineSmartAccountBeacon, initData);
+        address newMachineSmartAccountAddress = address(proxy);
 
         // fund the machine owner with the first tx fee needed to trigger the first tx
         if (configs[IS_REFUND_ENABLED_KEY] != 0) {
             _refundTxFees(machineOwner, configs[TX_FEE_REFUND_AMOUNT_KEY]);
         }
 
-        emit Events.MachineSmartAccountDeployed(address(newMachineSmartAccount));
-        return address(newMachineSmartAccount);
+        emit Events.MachineSmartAccountDeployed(newMachineSmartAccountAddress);
+        return newMachineSmartAccountAddress;
     }
 
     /**
